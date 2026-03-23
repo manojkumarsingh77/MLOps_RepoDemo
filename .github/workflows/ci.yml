@@ -1,0 +1,76 @@
+name: ML Model CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-and-train:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r src/requirements.txt scikit-learn pytest pytest-cov pylint
+    
+    - name: Lint code
+      run: |
+        pylint src/train.py src/predict.py --disable=all --enable=E,F
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/ -v --cov=src --cov-report=xml
+    
+    - name: Train ML model
+      run: |
+        python src/train.py \
+          --data_path data/loan_default_training.csv \
+          --model_path models/loan_default_model
+    
+    - name: Validate model metrics
+      run: |
+        if [ -f scripts/validate_metrics.py ]; then
+          python scripts/validate_metrics.py \
+            --model_path models/loan_default_model \
+            --min_auc 0.75 \
+            --min_accuracy 0.70
+        else
+          echo "No metrics validator found; skipping metric validation step"
+        fi
+
+    - name: Build Docker image
+      run: |
+        docker version
+        docker build -t loan-default:latest -f Dockerfile .
+
+    - name: Save Docker image
+      run: |
+        docker save loan-default:latest -o loan-default-image.tar
+
+    - name: Upload Docker image artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: docker-image
+        path: loan-default-image.tar
+    
+    - name: Upload model artifacts
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-model
+        path: models/loan_default_model
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
