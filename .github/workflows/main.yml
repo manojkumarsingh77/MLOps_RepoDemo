@@ -20,26 +20,25 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r src/requirements.txt 2>/dev/null || echo "requirements.txt not found"
-          pip install pytest pytest-cov flake8 -q
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r src/requirements.txt
+          pip install pytest pytest-cov flake8
 
       - name: Lint with flake8
         run: |
           flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
-          flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics || true
 
       - name: Run unit tests
         run: |
           if [ -d "tests" ]; then
-            pytest tests/ -v --tb=short || true
+            pytest tests/ -v --tb=short --cov=src --cov-report=xml || true
           else
-            echo "No tests directory found"
+            echo "No tests directory found - skipping tests"
           fi
 
   # Build Docker Image
@@ -57,6 +56,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           push: false
           tags: mlops-repo:latest
           cache-from: type=gha
@@ -73,7 +73,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Create models directory
@@ -81,26 +81,26 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r src/requirements.txt 2>/dev/null || echo "requirements.txt not found"
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r src/requirements.txt
 
       - name: Train ML Model
         run: |
           if [ -f "MLOps_CICD.py" ]; then
-            python MLOps_CICD.py || echo "Training script completed with warnings"
+            python MLOps_CICD.py
           else
-            echo "MLOps_CICD.py not found"
+            echo "MLOps_CICD.py not found - skipping training"
           fi
+        continue-on-error: true
 
-      - name: Upload model artifact
+      - name: Upload model artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: trained-model
+          name: trained-models
           path: models/
           if-no-files-found: ignore
-        if: always()
 
-  # Validate
+  # Validate Model
   validate:
     needs: train
     runs-on: ubuntu-latest
@@ -112,40 +112,43 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
           cache: 'pip'
 
-      - name: Download model artifact
+      - name: Download model artifacts
         uses: actions/download-artifact@v4
         with:
-          name: trained-model
+          name: trained-models
           path: models/
         continue-on-error: true
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r src/requirements.txt 2>/dev/null || echo "requirements.txt not found"
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r src/requirements.txt
 
-      - name: Validate Model
+      - name: Run model validation
         run: |
           if [ -f "src/predict.py" ]; then
-            python src/predict.py || echo "Validation script completed with warnings"
+            python src/predict.py
           else
-            echo "src/predict.py not found"
+            echo "src/predict.py not found - skipping validation"
           fi
         continue-on-error: true
 
-  # Workflow Summary
+  # Workflow Completion Report
   summary:
     needs: [test, build, train, validate]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Workflow Status
+      - name: Print workflow summary
         run: |
-          echo "✅ Workflow Summary:"
-          echo "Test Status: ${{ needs.test.result }}"
-          echo "Build Status: ${{ needs.build.result }}"
-          echo "Train Status: ${{ needs.train.result }}"
-          echo "Validate Status: ${{ needs.validate.result }}"
+          echo "═════════════════════════════════════"
+          echo "  MLOps CI/CD Pipeline Complete"
+          echo "═════════════════════════════════════"
+          echo "Test:     ${{ needs.test.result }}"
+          echo "Build:    ${{ needs.build.result }}"
+          echo "Train:    ${{ needs.train.result }}"
+          echo "Validate: ${{ needs.validate.result }}"
+          echo "═════════════════════════════════════"
