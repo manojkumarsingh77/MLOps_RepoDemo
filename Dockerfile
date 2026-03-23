@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy application code
 COPY src/ /app/src/
 
-# Copy models if present (best-effort; build will not fail if models/ absent)
-COPY models/ /app/models/  
+# Create models directory (will be populated at runtime or during training)
+RUN mkdir -p /app/models
 
 ENTRYPOINT ["python", "src/predict.py"]
